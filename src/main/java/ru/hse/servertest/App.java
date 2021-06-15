@@ -1,7 +1,16 @@
 package ru.hse.servertest;
 
 import java.io.*;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.nio.ByteBuffer;
+import java.nio.channels.AsynchronousChannelGroup;
+import java.nio.channels.AsynchronousServerSocketChannel;
+import java.nio.channels.AsynchronousSocketChannel;
+import java.nio.channels.CompletionHandler;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Supplier;
 import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
@@ -107,6 +116,53 @@ public class App {
         }
     }
 
+    public static void moin(String[] args) throws IOException {
+        ExecutorService exec = Executors.newFixedThreadPool(1);
+        AsynchronousChannelGroup group = AsynchronousChannelGroup.withThreadPool(exec);
+        AsynchronousServerSocketChannel assc = AsynchronousServerSocketChannel.open(group);
+        assc.bind(new InetSocketAddress("localhost", 12345));
+
+        assc.accept(null, new CompletionHandler<AsynchronousSocketChannel, Object>() {
+            @Override
+            public void completed(AsynchronousSocketChannel chan, Object attachment) {
+                ByteBuffer buf = ByteBuffer.allocate(1010);
+                chan.read(buf, null, new CompletionHandler<Integer, Object>() {
+                    @Override
+                    public void completed(Integer len, Object attachment) {
+                        if (len > 0) {
+                            buf.flip();
+                            System.out.println(buf.get());
+                            System.out.println(buf.get());
+                            System.out.println(buf.get());
+                            System.out.println(buf.get());
+                            System.out.println(len);
+                        } else {
+                            System.out.println(len);
+                        }
+                        System.out.println("-----");
+                        chan.read(buf, null, this);
+                    }
+
+                    @Override
+                    public void failed(Throwable exc, Object attachment) {
+                        throw new RuntimeException(exc);
+                    }
+                });
+            }
+
+            @Override
+            public void failed(Throwable exc, Object attachment) {
+                throw new RuntimeException(exc);
+            }
+        });
+
+        Socket csoc = new Socket("localhost", 12345);
+        csoc.getOutputStream().write(5);
+        csoc.getOutputStream().write(6);
+        csoc.getOutputStream().write(7);
+        csoc.getOutputStream().write(8);
+    }
+
     public static void main(String[] args) throws FileNotFoundException {
 
         loadParams();
@@ -137,6 +193,10 @@ public class App {
         } catch (IOException e) {
             e.printStackTrace(); // okay here
         }
+
+        // known problems:
+        // - async: halts while parsing proto
+        // - async: buffers are not th-safe, but you use an executor
     }
 
 }

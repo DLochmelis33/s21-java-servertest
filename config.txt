@@ -5,9 +5,9 @@
 #    param : from - to
 
 # options are blocking, nonblocking, async
-server : blocking
+server : async
 
-n : 100 - 200
-m : 20
+n : 100
+m : 1
 delta : 1000
 x : 1
