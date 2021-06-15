@@ -1,3 +1,7 @@
+ru/hse/servertest/NonblockingServer.java
+ ru.hse.servertest.NonblockingServer
+ru/hse/servertest/AsyncServer.java
+ ru.hse.servertest.AsyncServer
 ru/hse/servertest/ServerResponses.java
  ru.hse.servertest.ServerResponses
  ru.hse.servertest.ServerResponses$1
@@ -10,10 +14,11 @@ ru/hse/servertest/SortedArray.java
 ru/hse/servertest/CSVPrinter.java
  ru.hse.servertest.CSVPrinter
  ru.hse.servertest.CSVPrinter$CSVPrinterBuilder
-ru/hse/servertest/AsyncServer.java
- ru.hse.servertest.AsyncServer
-ru/hse/servertest/SortedArrayOrBuilder.java
- ru.hse.servertest.SortedArrayOrBuilder
+ru/hse/servertest/TestingClient.java
+ ru.hse.servertest.TestingClient
+ru/hse/servertest/Tester.java
+ ru.hse.servertest.Tester
+ ru.hse.servertest.Tester$TestingResult
 ru/hse/servertest/ArrayToSort.java
  ru.hse.servertest.ArrayToSort
  ru.hse.servertest.ArrayToSort$1
@@ -25,21 +30,16 @@ ru/hse/servertest/AvgCounter.java
 ru/hse/servertest/ClientRequests.java
  ru.hse.servertest.ClientRequests
  ru.hse.servertest.ClientRequests$1
-ru/hse/servertest/NonblockingServer.java
- ru.hse.servertest.NonblockingServer
-ru/hse/servertest/Server.java
- ru.hse.servertest.Server
 ru/hse/servertest/Util.java
  ru.hse.servertest.Util
-ru/hse/servertest/Tester.java
- ru.hse.servertest.Tester
- ru.hse.servertest.Tester$TestingResult
-ru/hse/servertest/BlockingServer.java
- ru.hse.servertest.BlockingServer
- ru.hse.servertest.BlockingServer$ClientHolder
-ru/hse/servertest/TestingClient.java
- ru.hse.servertest.TestingClient
+ru/hse/servertest/Server.java
+ ru.hse.servertest.Server
+ru/hse/servertest/SortedArrayOrBuilder.java
+ ru.hse.servertest.SortedArrayOrBuilder
 ru/hse/servertest/App.java
  ru.hse.servertest.App
  ru.hse.servertest.App$ConfigException
  ru.hse.servertest.App$Param
+ru/hse/servertest/BlockingServer.java
+ ru.hse.servertest.BlockingServer
+ ru.hse.servertest.BlockingServer$ClientHolder

@@ -6,6 +6,7 @@ import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -30,7 +31,7 @@ public class BlockingServer implements Server {
     private final ExecutorService connectionExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService tasksExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
     private final AtomicBoolean isWorking = new AtomicBoolean(false);
-    private final Set<ClientHolder> activeClients = new HashSet<>();
+    private final Set<ClientHolder> activeClients = ConcurrentHashMap.newKeySet();
 
     // for non-fatal errors
     private void error(String msg, Throwable e) {
@@ -113,6 +114,11 @@ public class BlockingServer implements Server {
     }
 
     private void disconnect(ClientHolder client) {
+        disconnectNoRemove(client);
+        activeClients.remove(client);
+    }
+
+    private void disconnectNoRemove(ClientHolder client) {
         try {
             client.socket.close();
         } catch (IOException e) {
@@ -120,7 +126,6 @@ public class BlockingServer implements Server {
         }
         client.receivingExecutor.shutdownNow();
         client.sendingExecutor.shutdownNow();
-        activeClients.remove(client);
     }
 
     @Override
@@ -137,8 +142,9 @@ public class BlockingServer implements Server {
         connectionExecutor.shutdownNow();
         tasksExecutor.shutdownNow();
 
-        for (ClientHolder client : activeClients) {
-            disconnect(client);
+        for (Iterator<ClientHolder> iter = activeClients.iterator(); iter.hasNext(); ) {
+            disconnectNoRemove(iter.next());
+            iter.remove();
         }
         activeClients.clear();
 

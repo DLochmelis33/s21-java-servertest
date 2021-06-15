@@ -83,6 +83,8 @@ public class Tester {
             server.stop();
         }
 
+        Log.d("testing: calc results");
+
         long totalTime = 0;
         long totalSuccesses = 0;
         for (TestingClient client : clients) {
