@@ -1,0 +1,13 @@
+# supports comments and multiple ranges!
+# format:
+#    param : value
+# or
+#    param : from - to
+
+# options are blocking, nonblocking, async
+server : blocking
+
+n : 100
+m : 2
+delta : 1000
+x : 1

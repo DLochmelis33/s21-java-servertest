@@ -15,21 +15,40 @@ import static ru.hse.servertest.Util.intFromBytes;
 
 public class BlockingServer implements Server {
 
+    private static class ClientHolder {
+        public final Socket socket;
+        public final ExecutorService receivingExecutor, sendingExecutor;
+
+        public ClientHolder(Socket socket, ExecutorService receivingExecutor, ExecutorService sendingExecutor) {
+            this.socket = socket;
+            this.receivingExecutor = receivingExecutor;
+            this.sendingExecutor = sendingExecutor;
+        }
+    }
+
     private ServerSocket serverSocket;
     private final ExecutorService connectionExecutor = Executors.newSingleThreadExecutor();
     private final ExecutorService tasksExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
     private final AtomicBoolean isWorking = new AtomicBoolean(false);
-    private final Map<Socket, Thread> receiverThreads = new HashMap<>();
-    private final Map<Socket, ExecutorService> senderExecutors = new HashMap<>();
-    private final Set<Socket> activeSockets = new HashSet<>();
+    private final Set<ClientHolder> activeClients = new HashSet<>();
 
-    // TODO: fail on staring twice
+    // for non-fatal errors
+    private void error(String msg, Throwable e) {
+        if(isWorking.get()) {
+            Log.e(msg, e);
+        } // else is part of shutting down
+    }
+
     @Override
     public void start(int port) {
+        if(serverSocket != null) {
+            throw new IllegalStateException("starting server twice is disallowed");
+        }
         try {
             serverSocket = new ServerSocket(port);
             isWorking.set(true);
             connectionExecutor.submit(this::connectingJob);
+            Log.d("server: started");
         } catch (IOException e) {
             throw new IllegalStateException("cannot start server", e);
         }
@@ -39,90 +58,74 @@ public class BlockingServer implements Server {
         while (isWorking.get()) {
             try {
                 Socket clientSocket = serverSocket.accept();
-                Log.log("server: new client accepted");
+                Log.d("server: new client accepted");
 
-                ExecutorService senderExecutor = Executors.newSingleThreadExecutor();
-                senderExecutors.put(clientSocket, senderExecutor);
+                ExecutorService sendingExecutor = Executors.newSingleThreadExecutor();
+                ExecutorService receivingExecutor = Executors.newSingleThreadExecutor();
 
-                Thread receiverThread = new Thread(() -> receivingJob(clientSocket));
-                receiverThread.start();
-                receiverThreads.put(clientSocket, receiverThread);
-
-                activeSockets.add(clientSocket);
+                ClientHolder client = new ClientHolder(clientSocket, receivingExecutor, sendingExecutor);
+                activeClients.add(client);
+                receivingExecutor.submit(() -> receivingJob(client));
 
             } catch (IOException e) {
-                // TODO: server should not fail here
-                throw new IllegalStateException("cannot accept new client", e);
+                error("cannot accept new client", e);
             }
         }
     }
 
-    private void receivingJob(Socket clientSocket) {
+    private void receivingJob(ClientHolder client) {
         while (!Thread.interrupted() && isWorking.get()) {
             try {
-                int requestLength = intFromBytes(clientSocket.getInputStream().readNBytes(4));
-                if(requestLength < 0) {
-                    Log.log("server: negative len=" + requestLength);
-                    return;
-                }
-                byte[] requestBytes = clientSocket.getInputStream().readNBytes(requestLength);
-                Log.log("server: request received");
+                InputStream inputStream = client.socket.getInputStream();
+                int requestLength = intFromBytes(inputStream.readNBytes(4));
+                byte[] requestBytes = inputStream.readNBytes(requestLength);
+                Log.d("server: request received");
 
                 ArrayToSort payload = ArrayToSort.parseFrom(requestBytes);
-                tasksExecutor.submit(() -> doTask(clientSocket, payload));
+                tasksExecutor.submit(() -> doTask(client, payload));
 
-            } catch (IOException e) {
-                // TODO: server should not fail here
-//            throw new IllegalStateException(e);
-                disconnect(clientSocket);
+            } catch (IOException | IllegalArgumentException e) {
+                error("server: receiving failed, disconnecting", e);
+                disconnect(client);
             }
         }
     }
 
-    private void doTask(Socket clientSocket, ArrayToSort payload) {
-        ArrayList<Integer> array = new ArrayList<>(payload.getArrayList()); // "get 'array' field as list
-        Collections.sort(array);
-        SortedArray sortedArray = SortedArray.newBuilder().addAllArray(array).build();
-        ExecutorService senderExecutor = senderExecutors.get(clientSocket);
-        if (senderExecutor != null) {
-            senderExecutor.submit(() -> writingJob(clientSocket, sortedArray));
-        } else {
-            // TODO: server should not fail here
-            throw new IllegalStateException("client socket removed before writing");
-        }
+    private void doTask(ClientHolder client, ArrayToSort payload) {
+        SortedArray sortedArray = Tester.process(payload);
+        Log.d("server: payload processed");
+        client.sendingExecutor.submit(() -> writingJob(client, sortedArray));
     }
 
-    private void writingJob(Socket clientSocket, SortedArray sortedArray) {
+    private void writingJob(ClientHolder client, SortedArray sortedArray) {
         try {
-            Log.log("server: writing response");
-            OutputStream outputStream = clientSocket.getOutputStream();
+            Log.d("server: writing response");
+            OutputStream outputStream = client.socket.getOutputStream();
             byte[] data = sortedArray.toByteArray();
             outputStream.write(bytesFromInt(data.length));
             outputStream.write(data);
-            Log.log("server: written response");
+            Log.d("server: written response");
 
         } catch (IOException e) {
-            // TODO: server should not fail here
-//            throw new IllegalStateException(e);
-            disconnect(clientSocket);
+            error("server: writing failed, disconnecting", e);
+            disconnect(client);
         }
     }
 
-    private void disconnect(Socket clientSocket) {
-        Log.log("server: disconnect");
+    private void disconnect(ClientHolder client) {
         try {
-            clientSocket.close();
+            client.socket.close();
         } catch (IOException e) {
-            e.printStackTrace();
+            // ignored
         }
-        receiverThreads.remove(clientSocket);
-        senderExecutors.remove(clientSocket);
-        activeSockets.remove(clientSocket);
+        client.receivingExecutor.shutdownNow();
+        client.sendingExecutor.shutdownNow();
+        activeClients.remove(client);
     }
 
     @Override
     public synchronized void stop() {
-        Log.log("server: stopping");
+        Log.d("server: stopping");
         isWorking.set(false);
 
         try {
@@ -131,29 +134,15 @@ public class BlockingServer implements Server {
             // ignored
         }
 
-        connectionExecutor.shutdown();
-        tasksExecutor.shutdown();
+        connectionExecutor.shutdownNow();
+        tasksExecutor.shutdownNow();
 
-        for (Thread thread : receiverThreads.values()) {
-            thread.interrupt();
+        for (ClientHolder client : activeClients) {
+            disconnect(client);
         }
-        receiverThreads.clear();
+        activeClients.clear();
 
-        for (ExecutorService executor : senderExecutors.values()) {
-            executor.shutdown();
-        }
-//        senderExecutors.clear();
-
-        for (Iterator<Socket> iter = activeSockets.iterator(); iter.hasNext(); ) {
-            iter.next();
-//            try {
-//                iter.next().close();
-//            } catch (IOException e) {
-//                // ignored
-//            }
-        }
-        activeSockets.clear();
-
+        Log.d("server: stopped");
     }
 
 }

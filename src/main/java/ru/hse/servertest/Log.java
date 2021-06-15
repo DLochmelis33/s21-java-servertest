@@ -1,12 +1,12 @@
 package ru.hse.servertest;
 
-import java.util.logging.Level;
-import java.util.logging.Logger;
-
 public class Log {
-    public static void log(String msg) {
-        // TODO
-//        Logger.getGlobal().log(Level.ALL, msg);
+    public static void d(String msg) {
         System.out.println(msg);
+    }
+
+    public static void e(String msg, Throwable err) {
+        System.err.println(msg);
+        err.printStackTrace();
     }
 }

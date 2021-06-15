@@ -1,29 +1,28 @@
 package ru.hse.servertest;
 
+import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
 public class Tester {
 
     public static final String SERVER_IP = "localhost";
-    public static final int SERVER_PORT = 5555;
+    public static final int SERVER_PORT = 8888;
 
-    public static class Result {
-        public Result(double avgClientTime) {
+    public static class TestingResult {
+        public TestingResult(double avgClientTime, double avgServerTime) {
             this.avgClientTime = avgClientTime;
+            this.avgServerTime = avgServerTime;
         }
 
-        public final double avgClientTime;
+        public final double avgClientTime, avgServerTime;
     }
 
-    public static Result doTest(int n, int m, long delayMs, int x, Supplier<Server> serverSupplier) {
+    public static TestingResult doTest(int n, int m, long delayMs, int x, Supplier<Server> serverSupplier) {
         if (m <= 0) {
             // stopping condition is never called, thread halts
             throw new IllegalArgumentException("negative argument 'm': " + m);
@@ -32,10 +31,13 @@ public class Tester {
         Server server = serverSupplier.get();
         server.start(SERVER_PORT);
 
+//        server.stop();
+//        if(true)
+//        return new Result(0);
+
         ExecutorService clientsExecutor = Executors.newCachedThreadPool();
         CountDownLatch startingLatch = new CountDownLatch(m + 1); // extra 1 for this thread
-        ReentrantLock stoppingLock = new ReentrantLock();
-        Condition stoppingCondition = stoppingLock.newCondition();
+        CountDownLatch stoppingLatch = new CountDownLatch(1); // aka notify() without synchronizing / blocking
         AtomicBoolean isFinishing = new AtomicBoolean(false);
 
         TestingClient[] clients = new TestingClient[m];
@@ -44,68 +46,58 @@ public class Tester {
             clientsExecutor.submit(() -> {
                 TestingClient client = clients[clientCnt];
                 try {
-                    // ! TODO: mixed locks
-                    synchronized (client) {
-                        startingLatch.countDown();
-                        startingLatch.await();
+                    startingLatch.countDown();
+                    startingLatch.await();
 
-                        for (int i = 0; i < x; i++) { // not stream bc InterruptedException
-                            client.submitNewRequest();
-                            if (!client.isConnected()) {
-                                break;
-                            }
-                            client.wait(delayMs);
+                    for (int i = 0; i < x; i++) { // not stream bc InterruptedException
+                        client.submitNewRequest();
+                        if (!client.isConnected() || isFinishing.get()) {
+                            break;
                         }
+                        Thread.sleep(delayMs);
+                    }
 
-                        while (client.getSuccesses() < x) {
-                            client.wait();
-                        }
+                    while (!isFinishing.get() && client.isConnected() && client.getSuccesses() < x) {
+                        client.clientStoppingCondition.await();
                     }
 
                 } catch (InterruptedException e) {
-                    Log.log("interrupted");
+                    Log.d("testing: client interrupted");
                     // ignored, shutting down
-                } catch (Throwable hm) {
-                    hm.printStackTrace();
                 } finally {
                     client.stop();
                     isFinishing.set(true);
-                    stoppingLock.lock();
-                    try {
-                        stoppingCondition.signal();
-                    } finally {
-                        stoppingLock.unlock();
-                    }
+                    stoppingLatch.countDown();
                 }
             });
         });
 
-        stoppingLock.lock();
+        startingLatch.countDown();
         try {
-            startingLatch.countDown();
-
-            while (!isFinishing.get()) {
-                stoppingCondition.await();
-            }
-            Log.log("finishing");
-
-            long totalTime = 0;
-            long totalSuccesses = 0;
-            for (TestingClient client : clients) {
-                totalTime += client.getTimesSum();
-                totalSuccesses += client.getSuccesses();
-            }
-
-            return new Result((double) totalTime / totalSuccesses);
-
+            stoppingLatch.await();
         } catch (InterruptedException e) {
-            throw new IllegalStateException("testing interrupted");
+            throw new IllegalStateException("testing: interrupted");
         } finally {
-            stoppingLock.unlock();
+            Log.d("testing: finishing");
             clientsExecutor.shutdownNow();
             server.stop();
         }
 
+        long totalTime = 0;
+        long totalSuccesses = 0;
+        for (TestingClient client : clients) {
+            totalTime += client.getTimesSum();
+            totalSuccesses += client.getSuccesses();
+            client.stop();
+        }
+
+        return new TestingResult((double) totalTime / totalSuccesses, 0); // TODO: server time
+    }
+
+    public static SortedArray process(ArrayToSort arr) {
+        ArrayList<Integer> list = new ArrayList<>(arr.getArrayList());
+        Util.bubbleSort(list);
+        return SortedArray.newBuilder().addAllArray(list).build();
     }
 
 }
