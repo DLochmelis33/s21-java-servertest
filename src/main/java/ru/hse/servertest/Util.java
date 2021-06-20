@@ -1,13 +1,20 @@
 package ru.hse.servertest;
 
+import java.nio.BufferOverflowException;
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 
 public class Util {
 
     public static int intFromBytes(byte[] bytes) {
-        return ByteBuffer.wrap(bytes).getInt();
+        try {
+            return ByteBuffer.wrap(bytes).getInt();
+        } catch (BufferOverflowException | BufferUnderflowException e) {
+            throw new IllegalArgumentException(e);
+        }
 //        if(bytes.length != 4){
 //            throw new IllegalArgumentException();
 //        }
@@ -44,6 +51,18 @@ public class Util {
                 }
             }
         }
+    }
+
+    public static void submit(Runnable r, ExecutorService es) {
+        es.submit(() -> {
+            try {
+                r.run();
+            } catch (Throwable e) {
+                if(!Tester.isFinishing.get()) {
+                    App.exceptionHandler.uncaughtException(Thread.currentThread(), e);
+                }
+            }
+        });
     }
 
 }

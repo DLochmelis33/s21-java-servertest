@@ -1,5 +1,7 @@
 package ru.hse.servertest;
 
+import com.google.protobuf.InvalidProtocolBufferException;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -28,27 +30,29 @@ public class BlockingServer implements Server {
     }
 
     private ServerSocket serverSocket;
-    private final ExecutorService connectionExecutor = Executors.newSingleThreadExecutor();
-    private final ExecutorService tasksExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    private final ExecutorService connectionExecutor = Executors.newSingleThreadExecutor(App.threadFactory);
+    private final ExecutorService tasksExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors(), App.threadFactory);
     private final AtomicBoolean isWorking = new AtomicBoolean(false);
     private final Set<ClientHolder> activeClients = ConcurrentHashMap.newKeySet();
 
     // for non-fatal errors
+    // we can set server behavior - either disconnect broken client and continue or stop altogether
     private void error(String msg, Throwable e) {
-        if(isWorking.get()) {
+        if (isWorking.get() && !Tester.isFinishing.get()) {
             Log.e(msg, e);
+            throw new RuntimeException(e);
         } // else is part of shutting down
     }
 
     @Override
     public void start(int port) {
-        if(serverSocket != null) {
+        if (serverSocket != null) {
             throw new IllegalStateException("starting server twice is disallowed");
         }
         try {
             serverSocket = new ServerSocket(port);
             isWorking.set(true);
-            connectionExecutor.submit(this::connectingJob);
+            Util.submit(this::connectingJob, connectionExecutor);
             Log.d("server: started");
         } catch (IOException e) {
             throw new IllegalStateException("cannot start server", e);
@@ -66,7 +70,7 @@ public class BlockingServer implements Server {
 
                 ClientHolder client = new ClientHolder(clientSocket, receivingExecutor, sendingExecutor);
                 activeClients.add(client);
-                receivingExecutor.submit(() -> receivingJob(client));
+                Util.submit(() -> receivingJob(client),receivingExecutor);
 
             } catch (IOException e) {
                 error("cannot accept new client", e);
@@ -83,7 +87,7 @@ public class BlockingServer implements Server {
                 Log.d("server: request received");
 
                 ArrayToSort payload = ArrayToSort.parseFrom(requestBytes);
-                tasksExecutor.submit(() -> doTask(client, payload));
+                Util.submit(() -> doTask(client, payload), tasksExecutor);
 
             } catch (IOException | IllegalArgumentException e) {
                 error("server: receiving failed, disconnecting", e);
@@ -95,7 +99,7 @@ public class BlockingServer implements Server {
     private void doTask(ClientHolder client, ArrayToSort payload) {
         SortedArray sortedArray = Tester.process(payload);
         Log.d("server: payload processed");
-        client.sendingExecutor.submit(() -> writingJob(client, sortedArray));
+        Util.submit(() -> writingJob(client, sortedArray), client.sendingExecutor);
     }
 
     private void writingJob(ClientHolder client, SortedArray sortedArray) {

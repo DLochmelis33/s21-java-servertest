@@ -42,7 +42,7 @@ public class AsyncServer implements Server {
         }
     }
 
-    private final ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    private final ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors(), App.threadFactory);
     private final AsynchronousChannelGroup channelGroup;
     private final AsynchronousServerSocketChannel serverSocketChannel;
 

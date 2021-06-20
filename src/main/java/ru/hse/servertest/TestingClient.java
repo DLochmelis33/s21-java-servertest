@@ -8,6 +8,7 @@ import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.IntStream;
 
 import static ru.hse.servertest.Util.bytesFromInt;
@@ -17,9 +18,9 @@ public class TestingClient {
 
     private final int n, x;
     private final Socket socket;
-    private final ExecutorService messageExecutor = Executors.newCachedThreadPool();
-    private final AvgCounter avgcnt = new AvgCounter();
+    private final ExecutorService messageExecutor = Executors.newCachedThreadPool(App.threadFactory);
     public final CountDownLatch clientStoppingCondition = new CountDownLatch(1);
+    private final AtomicLong successes = new AtomicLong(0);
 
     public TestingClient(int n, int x, String serverIp, int serverPort) {
         this.n = n;
@@ -60,14 +61,15 @@ public class TestingClient {
                     throw new IllegalStateException("wrong response from server");
                 }
 
-                avgcnt.add(Duration.between(start, end).toMillis());
+                Tester.clientCounter.add(Duration.between(start, end).toMillis());
+                successes.incrementAndGet();
 
             } catch (IOException e) {
                 // TODO: what if the server is already stopped?
                 stop();
                 throw new IllegalStateException("failed to send a message", e);
             } finally {
-                if(!isConnected() || getSuccesses() == x) {
+                if(!isConnected() || successes.get() == x) {
                     clientStoppingCondition.countDown();
                 }
             }
@@ -89,11 +91,11 @@ public class TestingClient {
         return socket.isConnected();
     }
 
-    public double getTimesSum() {
-        return avgcnt.getSum();
-    }
+//    public double getTimesSum() {
+//        return avgcnt.getSum();
+//    }
 
     public long getSuccesses() {
-        return avgcnt.getCnt();
+        return successes.get();
     }
 }

@@ -22,6 +22,9 @@ public class Tester {
         public final double avgClientTime, avgServerTime;
     }
 
+    public final static AtomicBoolean isFinishing = new AtomicBoolean(false);
+    public static AvgCounter clientCounter;
+
     public static TestingResult doTest(int n, int m, long delayMs, int x, Supplier<Server> serverSupplier) {
         if (m <= 0) {
             // stopping condition is never called, thread halts
@@ -35,10 +38,11 @@ public class Tester {
 //        if(true)
 //        return new Result(0);
 
-        ExecutorService clientsExecutor = Executors.newCachedThreadPool();
+        ExecutorService clientsExecutor = Executors.newCachedThreadPool(App.threadFactory);
         CountDownLatch startingLatch = new CountDownLatch(m + 1); // extra 1 for this thread
         CountDownLatch stoppingLatch = new CountDownLatch(1); // aka notify() without synchronizing / blocking
-        AtomicBoolean isFinishing = new AtomicBoolean(false);
+        isFinishing.set(false);
+        clientCounter = new AvgCounter();
 
         TestingClient[] clients = new TestingClient[m];
         IntStream.range(0, m).forEach(clientCnt -> {
@@ -54,6 +58,7 @@ public class Tester {
                         if (!client.isConnected() || isFinishing.get()) {
                             break;
                         }
+                        Thread.yield();
                         Thread.sleep(delayMs);
                     }
 
@@ -65,9 +70,9 @@ public class Tester {
                     Log.d("testing: client interrupted");
                     // ignored, shutting down
                 } finally {
-                    client.stop();
-                    isFinishing.set(true);
+                    isFinishing.set(true); // before stopping!
                     stoppingLatch.countDown();
+                    client.stop();
                 }
             });
         });
@@ -85,15 +90,15 @@ public class Tester {
 
         Log.d("testing: calc results");
 
-        long totalTime = 0;
         long totalSuccesses = 0;
         for (TestingClient client : clients) {
-            totalTime += client.getTimesSum();
             totalSuccesses += client.getSuccesses();
             client.stop();
         }
 
-        return new TestingResult((double) totalTime / totalSuccesses, 0); // TODO: server time
+        Log.w("total successes: " + totalSuccesses + ", max: " + (m * x) + ", okay: " + (m * (x - 1)));
+
+        return new TestingResult(clientCounter.getAvg(), 0); // TODO: server time
     }
 
     public static SortedArray process(ArrayToSort arr) {

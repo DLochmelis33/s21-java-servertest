@@ -1,13 +1,15 @@
 # supports comments and multiple ranges!
 # format:
-#    param : value
+#    'param : value'
 # or
-#    param : from - to
+#    'param : from - to'
+# or
+#    'param : from - to ; step'
 
 # options are blocking, nonblocking, async
-server : async
+server : blocking
 
-n : 100
-m : 1
-delta : 1000
-x : 1
+n : 1000
+m : 10 - 100 ; 10
+delta : 200
+x : 10

@@ -1,5 +1,7 @@
 package ru.hse.servertest;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -11,6 +13,7 @@ import java.nio.channels.CompletionHandler;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.function.Supplier;
 import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
@@ -47,7 +50,7 @@ public class App {
 
     static {
         for (Param p : Param.values()) {
-            paramValues.put(p, new HashSet<>());
+            paramValues.put(p, new LinkedHashSet<>());
         }
         serverTypeMap.put(1, BlockingServer::new);
         serverTypeMap.put(2, NonblockingServer::new);
@@ -58,6 +61,7 @@ public class App {
         try {
             Pattern patternSingle = Pattern.compile("^(\\w+) : (\\w+)$");
             Pattern patternRange = Pattern.compile("^(\\w+) : (\\d+) - (\\d+)$");
+            Pattern patternRangeStep = Pattern.compile("^(\\w+) : (\\d+) - (\\d+) ; (\\d+)$");
             Scanner scanner = new Scanner(new File(CONFIG_FILE));
             while (scanner.hasNextLine()) {
                 String line = scanner.nextLine(); // "excluding line separator"
@@ -69,10 +73,27 @@ public class App {
                     // comment
                     continue;
                 }
-                Matcher matcherRange = patternRange.matcher(line);
                 Matcher matcherSingle = patternSingle.matcher(line);
+                Matcher matcherRange = patternRange.matcher(line);
+                Matcher matcherRangeStep = patternRangeStep.matcher(line);
 
-                if (matcherRange.matches()) {
+                if (matcherRangeStep.matches()) {
+                    MatchResult result = matcherRangeStep.toMatchResult();
+                    try {
+                        Param param = Param.valueOf(result.group(1).toUpperCase());
+                        int from = Integer.parseInt(result.group(2));
+                        int to = Integer.parseInt(result.group(3));
+                        if (from > to) {
+                            throw new ConfigException("invalid range");
+                        }
+                        int step = Integer.parseInt(result.group(4));
+                        for (int i = from; i <= to; i += step) {
+                            paramValues.get(param).add(i);
+                        }
+                    } catch (IllegalArgumentException e) {
+                        throw new ConfigException(e);
+                    }
+                } else if (matcherRange.matches()) {
                     MatchResult result = matcherRange.toMatchResult();
                     try {
                         Param param = Param.valueOf(result.group(1).toUpperCase());
@@ -115,6 +136,18 @@ public class App {
             throw new ConfigException("cannot load config file", e);
         }
     }
+
+    public static Thread.UncaughtExceptionHandler exceptionHandler = (thread, error) -> {
+        error.printStackTrace();
+        System.err.println("uncaught exception, exiting");
+        System.exit(5);
+    };
+
+    public static ThreadFactory threadFactory = runnable -> {
+        Thread t = Executors.defaultThreadFactory().newThread(runnable);
+        t.setUncaughtExceptionHandler(exceptionHandler);
+        return t;
+    };
 
     public static void moin(String[] args) throws IOException {
         ExecutorService exec = Executors.newFixedThreadPool(1);
@@ -163,7 +196,7 @@ public class App {
         csoc.getOutputStream().write(8);
     }
 
-    public static void main(String[] args) throws FileNotFoundException {
+    public static void main(String[] args) {
 
         loadParams();
 
@@ -180,6 +213,7 @@ public class App {
                 for (int m : paramValues.get(Param.M)) {
                     for (int deltaMs : paramValues.get(Param.DELTA)) {
                         for (int x : paramValues.get(Param.X)) {
+                            System.out.println("testing with params: n=" + n + ", m=" + m + ", delta=" + deltaMs + ", x=" + x);
                             Supplier<Server> serverSupplier = serverTypeMap.get(paramValues.get(Param.SERVER).iterator().next());
                             Tester.TestingResult result = Tester.doTest(n, m, deltaMs, x, serverSupplier);
                             printer.printLine(n, m, deltaMs, x, result.avgClientTime, result.avgServerTime);
